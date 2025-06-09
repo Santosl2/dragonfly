@@ -1589,7 +1589,8 @@ void Service::DispatchMC(const MemcacheParser::Command& cmd, std::string_view va
       strcpy(cmd_name, "PREPEND");
       break;
     case MemcacheParser::GAT:
-      [[fallthrough]];
+      strcpy(cmd_name, "GAT");
+      break;
     case MemcacheParser::GET:
       [[fallthrough]];
     case MemcacheParser::GETS:
@@ -1642,16 +1643,17 @@ void Service::DispatchMC(const MemcacheParser::Command& cmd, std::string_view va
     }
     dfly_cntx->conn_state.memcache_flag = cmd.flags;
   } else if (cmd.type < MemcacheParser::QUIT) {  // read commands
+    if (cmd.type == MemcacheParser::GAT) {
+      char* next = absl::numbers_internal::FastIntToBuffer(expire_ts, ttl);
+      args.insert(args.begin() + 1, {ttl, static_cast<size_t>(next - ttl)});
+    }
+
     for (auto s : cmd.keys_ext) {
       char* key = const_cast<char*>(s.data());
       args.emplace_back(key, s.size());
     }
     if (cmd.type == MemcacheParser::GETS) {
       dfly_cntx->conn_state.memcache_flag |= ConnectionState::FETCH_CAS_VER;
-    }
-
-    if (cmd.type == MemcacheParser::GAT) {
-      dfly_cntx->conn_state.memcache_flag |= ConnectionState::SET_EXPIRY | expire_ts << 2;
     }
   } else {  // write commands.
     if (store_opt[0]) {
