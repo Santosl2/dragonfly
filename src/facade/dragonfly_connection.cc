@@ -1653,7 +1653,8 @@ void Connection::AsyncFiber() {
       // We keep the batch mode enabled as long as the dispatch queue is not empty, relying on the
       // last command to reply and flush. If it doesn't reply (i.e. is a control message like
       // migrate), we have to flush manually.
-      if (dispatch_q_.empty() && !msg.IsReplying()) {
+      bool flush_reply_builder = dispatch_q_.empty() && !msg.IsReplying();
+      if (flush_reply_builder) {
         reply_builder_->Flush();
       }
 
@@ -1664,9 +1665,15 @@ void Connection::AsyncFiber() {
         return;  // don't set conn closing flag
       }
 
+      auto replies_recorded_before = reply_builder_->RepliesRecorded();
       cc_->async_dispatch = true;
       std::visit(async_op, msg.handle);
       cc_->async_dispatch = false;
+      // If we didn't flush before and nothing was replied during dispatch
+      // (i.e. pubsub message was discarded) we have to manually flush now.
+      if (!flush_reply_builder && (replies_recorded_before == reply_builder_->RepliesRecorded())) {
+        reply_builder_->Flush();
+      }
       RecycleMessage(std::move(msg));
     }
 
